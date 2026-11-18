@@ -33,7 +33,7 @@ firmware is committed too, so flashing does not need `sdcc` either.
 ## 1. Install the app
 
 ```sh
-git clone https://github.com/CodingHxx/velvet-mech.git
+git clone https://github.com/coqfu/velvet-mech.git
 cd velvet-mech
 ./install.sh
 ```
