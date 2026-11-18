@@ -1,0 +1,33 @@
+# Build output.  build/keyboard.hex is the prebuilt image the app flashes,
+# so it is shipped; every other variant and object file is not.
+build/*
+!build/keyboard.hex
+
+# Python
+__pycache__/
+*.pyc
+host/*.log
+
+# UI dependencies and stale bundles.  app/ui/dist IS committed: the app runs
+# with python only, and a rebuild is only needed after changing the UI.
+app/ui/node_modules/
+app/ui/dist.prev/
+app/ui/dist.next/
+
+# Third-party flasher (GPL-2.0, installed separately; see docs/INSTALL.md)
+tools/wchisp/
+
+# Local state
+app/profiles.json
+.DS_Store
+
+# WCH datasheet (copyright WCH; download it separately)
+docs/CH555DS1.PDF
+docs/CH555DS1.txt
+
+# WCH datasheet (copyright WCH; download it from them)
+docs/CH555DS1.PDF
+docs/CH555DS1.txt
+
+# Third-party WCH SDK (its own repository, not redistributed)
+tools/WCH_CH555/

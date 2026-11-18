@@ -1,0 +1,345 @@
+{
+  "matrix": {
+    "columns": [
+      "P0.0",
+      "P0.1",
+      "P0.2",
+      "P0.3",
+      "P0.4",
+      "P0.5",
+      "P0.6",
+      "P0.7",
+      "P3.0",
+      "P3.1",
+      "P3.2",
+      "P3.3",
+      "P3.4",
+      "P3.5"
+    ],
+    "rows": [
+      "P4.1",
+      "P4.2",
+      "P4.3",
+      "P4.4",
+      "P4.5"
+    ],
+    "diode_direction": "column -> row (drive column low, read P4)"
+  },
+  "keys": [
+    {
+      "key": "ESC",
+      "col": 0,
+      "row": 0
+    },
+    {
+      "key": "1",
+      "col": 1,
+      "row": 0
+    },
+    {
+      "key": "2",
+      "col": 2,
+      "row": 0
+    },
+    {
+      "key": "3",
+      "col": 3,
+      "row": 0
+    },
+    {
+      "key": "4",
+      "col": 4,
+      "row": 0
+    },
+    {
+      "key": "5",
+      "col": 5,
+      "row": 0
+    },
+    {
+      "key": "6",
+      "col": 6,
+      "row": 0
+    },
+    {
+      "key": "7",
+      "col": 7,
+      "row": 0
+    },
+    {
+      "key": "8",
+      "col": 8,
+      "row": 0
+    },
+    {
+      "key": "9",
+      "col": 9,
+      "row": 0
+    },
+    {
+      "key": "0",
+      "col": 10,
+      "row": 0
+    },
+    {
+      "key": "MINUS",
+      "col": 11,
+      "row": 0
+    },
+    {
+      "key": "EQUAL",
+      "col": 12,
+      "row": 0
+    },
+    {
+      "key": "BSPC",
+      "col": 13,
+      "row": 0
+    },
+    {
+      "key": "TAB",
+      "col": 0,
+      "row": 1
+    },
+    {
+      "key": "Q",
+      "col": 1,
+      "row": 1
+    },
+    {
+      "key": "W",
+      "col": 2,
+      "row": 1
+    },
+    {
+      "key": "E",
+      "col": 3,
+      "row": 1
+    },
+    {
+      "key": "R",
+      "col": 4,
+      "row": 1
+    },
+    {
+      "key": "T",
+      "col": 5,
+      "row": 1
+    },
+    {
+      "key": "Y",
+      "col": 6,
+      "row": 1
+    },
+    {
+      "key": "U",
+      "col": 7,
+      "row": 1
+    },
+    {
+      "key": "I",
+      "col": 8,
+      "row": 1
+    },
+    {
+      "key": "O",
+      "col": 9,
+      "row": 1
+    },
+    {
+      "key": "P",
+      "col": 10,
+      "row": 1
+    },
+    {
+      "key": "LBRC",
+      "col": 11,
+      "row": 1
+    },
+    {
+      "key": "RBRC",
+      "col": 12,
+      "row": 1
+    },
+    {
+      "key": "BSLS",
+      "col": 13,
+      "row": 1
+    },
+    {
+      "key": "CAPS",
+      "col": 0,
+      "row": 2
+    },
+    {
+      "key": "A",
+      "col": 1,
+      "row": 2
+    },
+    {
+      "key": "S",
+      "col": 2,
+      "row": 2
+    },
+    {
+      "key": "D",
+      "col": 3,
+      "row": 2
+    },
+    {
+      "key": "F",
+      "col": 4,
+      "row": 2
+    },
+    {
+      "key": "G",
+      "col": 5,
+      "row": 2
+    },
+    {
+      "key": "H",
+      "col": 6,
+      "row": 2
+    },
+    {
+      "key": "J",
+      "col": 7,
+      "row": 2
+    },
+    {
+      "key": "K",
+      "col": 8,
+      "row": 2
+    },
+    {
+      "key": "L",
+      "col": 9,
+      "row": 2
+    },
+    {
+      "key": "SCLN",
+      "col": 10,
+      "row": 2
+    },
+    {
+      "key": "QUOT",
+      "col": 11,
+      "row": 2
+    },
+    {
+      "key": "ENT",
+      "col": 12,
+      "row": 2
+    },
+    {
+      "key": "LSFT",
+      "col": 0,
+      "row": 3
+    },
+    {
+      "key": "Z",
+      "col": 1,
+      "row": 3
+    },
+    {
+      "key": "X",
+      "col": 2,
+      "row": 3
+    },
+    {
+      "key": "C",
+      "col": 3,
+      "row": 3
+    },
+    {
+      "key": "V",
+      "col": 4,
+      "row": 3
+    },
+    {
+      "key": "B",
+      "col": 5,
+      "row": 3
+    },
+    {
+      "key": "N",
+      "col": 6,
+      "row": 3
+    },
+    {
+      "key": "M",
+      "col": 7,
+      "row": 3
+    },
+    {
+      "key": "COMM",
+      "col": 8,
+      "row": 3
+    },
+    {
+      "key": "DOT",
+      "col": 9,
+      "row": 3
+    },
+    {
+      "key": "SLSH",
+      "col": 10,
+      "row": 3
+    },
+    {
+      "key": "UP",
+      "col": 12,
+      "row": 3
+    },
+    {
+      "key": "RSFT",
+      "col": 11,
+      "row": 3
+    },
+    {
+      "key": "LCTL",
+      "col": 0,
+      "row": 4
+    },
+    {
+      "key": "LGUI",
+      "col": 1,
+      "row": 4
+    },
+    {
+      "key": "LALT",
+      "col": 2,
+      "row": 4
+    },
+    {
+      "key": "SPC",
+      "col": 3,
+      "row": 4
+    },
+    {
+      "key": "RALT",
+      "col": 4,
+      "row": 4
+    },
+    {
+      "key": "LEFT",
+      "col": 5,
+      "row": 4
+    },
+    {
+      "key": "DOWN",
+      "col": 6,
+      "row": 4
+    },
+    {
+      "key": "RGHT",
+      "col": 7,
+      "row": 4
+    },
+    {
+      "key": "FN",
+      "col": 11,
+      "row": 4
+    }
+  ]
+}

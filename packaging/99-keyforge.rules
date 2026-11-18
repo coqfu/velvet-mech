@@ -1,0 +1,6 @@
+# Velvet Mech: the keyboard and its ROM bootloader.
+# The application enumerates as 1209:c555, the bootloader as 4348:55e0.
+# Without this the app can only talk to the board as root.
+SUBSYSTEM=="usb", ATTR{idVendor}=="1209", ATTR{idProduct}=="c555", MODE="0666"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="c555", MODE="0666"
+SUBSYSTEM=="usb", ATTR{idVendor}=="4348", ATTR{idProduct}=="55e0", MODE="0666", TAG+="uaccess"

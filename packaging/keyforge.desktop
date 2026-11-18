@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=KeyForge
+GenericName=Keyboard control surface
+Comment=Lighting, keymap, macros and firmware flashing for the Velvet Mech keyboard
+Exec=keyforge
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;rgb;lighting;firmware;openrgb;
+Icon=input-keyboard
+StartupNotify=false

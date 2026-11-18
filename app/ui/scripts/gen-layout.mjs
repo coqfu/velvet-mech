@@ -1,0 +1,167 @@
+/* Generates src/lib/keyboard-data.ts from host/map.json and the firmware's
+ * keymap tables.  Run from app/ui:  node scripts/gen-layout.mjs
+ *
+ * Geometry is the physical 64% board in key units (u).  Every row is exactly
+ * 15u wide, which is why the stage can be laid out as one 15:5 rectangle:
+ *
+ *   row 0  ESC 1..0 - =                     BSPC 2u            15u
+ *   row 1  TAB 1.5  Q..]                    BSLS 1.5u          15u
+ *   row 2  CAPS 1.75 A..'                    ENTER 2.25u       15u
+ *   row 3  SHIFT 2.25 Z../           RSFT 1.75u  UP 1u         15u
+ *   row 4  CTRL WIN ALT 1.25x3  SPACE 6.25u  RALT 1.25u  <- v -> FN 0.75u
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+
+const map = JSON.parse(readFileSync(new URL("../../../host/map.json", import.meta.url)));
+const out = new URL("../src/lib/keyboard-data.ts", import.meta.url);
+
+/* width of every key in the row, in u -------------------------------------- */
+const WIDTHS = {
+  0: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2],
+  1: [1.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.5],
+  2: [1.75, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2.25],
+  3: [2.25, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.75, 1],
+  4: [1.25, 1.25, 1.25, 6.25, 1.25, 1, 1, 1, 0.75],
+};
+
+/* what is printed on the cap ----------------------------------------------- */
+const LEGEND = {
+  ESC: "ESC", MINUS: "\u2212", EQUAL: "=", BSPC: "BACKSPACE",
+  TAB: "TAB", LBRC: "[", RBRC: "]", BSLS: "\\",
+  CAPS: "CAPS", SCLN: ";", QUOT: "'", ENT: "ENTER",
+  LSFT: "SHIFT", COMM: ",", DOT: ".", SLSH: "/", RSFT: "SHIFT",
+  UP: "\u2191", LEFT: "\u2190", DOWN: "\u2193", RGHT: "\u2192",
+  LCTL: "CTRL", LGUI: "WIN", LALT: "ALT", SPC: "", RALT: "ALT", FN: "FN",
+  1: "1", 2: "2", 3: "3", 4: "4", 5: "5",
+  6: "6", 7: "7", 8: "8", 9: "9", 0: "0",
+};
+
+/* HID keyboard usage -> readable name (layer 0 / Fn layer) ------------------ */
+const USAGE = {
+  0x00: "\u2014",
+  0x04: "A", 0x05: "B", 0x06: "C", 0x07: "D", 0x08: "E", 0x09: "F",
+  0x0a: "G", 0x0b: "H", 0x0c: "I", 0x0d: "J", 0x0e: "K", 0x0f: "L",
+  0x10: "M", 0x11: "N", 0x12: "O", 0x13: "P", 0x14: "Q", 0x15: "R",
+  0x16: "S", 0x17: "T", 0x18: "U", 0x19: "V", 0x1a: "W", 0x1b: "X",
+  0x1c: "Y", 0x1d: "Z",
+  0x1e: "1", 0x1f: "2", 0x20: "3", 0x21: "4", 0x22: "5",
+  0x23: "6", 0x24: "7", 0x25: "8", 0x26: "9", 0x27: "0",
+  0x28: "ENTER", 0x29: "ESC", 0x2a: "BACKSPACE", 0x2b: "TAB",
+  0x2c: "SPACE", 0x2d: "-", 0x2e: "=", 0x2f: "[", 0x30: "]", 0x31: "\\",
+  0x33: ";", 0x34: "'", 0x35: "`", 0x36: ",", 0x37: ".", 0x38: "/",
+  0x39: "CAPS",
+  0x3a: "F1", 0x3b: "F2", 0x3c: "F3", 0x3d: "F4", 0x3e: "F5", 0x3f: "F6",
+  0x40: "F7", 0x41: "F8", 0x42: "F9", 0x43: "F10", 0x44: "F11", 0x45: "F12",
+  0x46: "PRINT SCR", 0x47: "SCROLL LCK", 0x48: "PAUSE", 0x49: "INSERT",
+  0x4c: "DELETE", 0x4f: "RIGHT", 0x50: "LEFT", 0x51: "DOWN", 0x52: "UP",
+  0x53: "NUM LCK",
+  0xe0: "L CTRL", 0xe1: "L SHIFT", 0xe2: "L ALT", 0xe3: "L GUI",
+  0xe5: "R SHIFT", 0xe6: "R ALT",
+};
+
+const MEDIA = {
+  0xe2: "MUTE", 0xe9: "VOL +", 0xea: "VOL \u2212",
+  0xb5: "TRACK +", 0xb6: "TRACK \u2212", 0xcd: "PLAY / PAUSE",
+};
+
+/* firmware tables, in K_* order: five rows, 14/14/13/13/9 keys ------------- */
+const LAYER0 = [
+  0x29, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e, 0x2a,
+  0x2b, 0x14, 0x1a, 0x08, 0x15, 0x17, 0x1c, 0x18, 0x0c, 0x12, 0x13, 0x2f, 0x30, 0x31,
+  0x39, 0x04, 0x16, 0x07, 0x09, 0x0a, 0x0b, 0x0d, 0x0e, 0x0f, 0x33, 0x34, 0x28,
+  0xe1, 0x1d, 0x1b, 0x06, 0x19, 0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0xe5, 0x52,
+  0xe0, 0xe3, 0xe2, 0x2c, 0xe6, 0x50, 0x51, 0x4f, 0x00,
+];
+
+const LAYER1 = [
+  0x35, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x4c,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x49, 0x46, 0x47, 0x48, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x53, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+const MEDIA1 = [
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0xe2, 0xea, 0xe9, 0xb6, 0xb5, 0xcd, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
+const keys = map.keys;
+if (keys.length !== 63) throw new Error(`expected 63 keys, map.json has ${keys.length}`);
+if (LAYER0.length !== 63 || LAYER1.length !== 63) throw new Error("keymap tables are not 63 keys");
+
+const rows = [0, 1, 2, 3, 4].map((r) => keys.filter((k) => k.row === r));
+rows.forEach((row, r) => {
+  const total = row.reduce((s, _, i) => s + WIDTHS[r][i], 0);
+  if (row.length !== WIDTHS[r].length) {
+    throw new Error(`row ${r}: ${row.length} keys but ${WIDTHS[r].length} widths`);
+  }
+  if (Math.abs(total - 15) > 1e-9) throw new Error(`row ${r} is ${total}u, not 15u`);
+});
+
+const q = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+
+const lines = [];
+lines.push("/* Generated by scripts/gen-layout.mjs - do not edit by hand. */");
+lines.push("");
+lines.push("export type KeyDef = {");
+lines.push("  id: string;");
+lines.push("  legend: string;");
+lines.push("  x: number;");
+lines.push("  y: number;");
+lines.push("  w: number;");
+lines.push("  h: number;");
+lines.push("  col: number;");
+lines.push("  row: number;");
+lines.push("  led: number;");
+lines.push("  base: string;");
+lines.push("  fn: string;");
+lines.push("  media: string | null;");
+lines.push("};");
+lines.push("");
+lines.push("export const UNITS_X = 15;");
+lines.push("export const UNITS_Y = 5;");
+lines.push("");
+lines.push("export const KEYS: KeyDef[] = [");
+
+keys.forEach((k, i) => {
+  const rowKeys = rows[k.row];
+  const idx = rowKeys.findIndex((rk) => rk.key === k.key);
+  const x = rowKeys.slice(0, idx).reduce((s, _, j) => s + WIDTHS[k.row][j], 0);
+  const w = WIDTHS[k.row][idx];
+  const legend = LEGEND[k.key] ?? k.key;
+  const base = USAGE[LAYER0[i]] ?? "0x" + LAYER0[i].toString(16);
+  const fn = USAGE[LAYER1[i]] ?? (LAYER1[i] ? "0x" + LAYER1[i].toString(16) : "\u2014");
+  const media = MEDIA1[i] ? MEDIA[MEDIA1[i]] ?? null : null;
+  lines.push(
+    `  { id: ${JSON.stringify(k.key)}, legend: ${JSON.stringify(legend)}, ` +
+      `x: ${q(x)}, y: ${k.row}, w: ${q(w)}, h: 1, ` +
+      `col: ${k.col}, row: ${k.row}, led: ${i}, ` +
+      `base: ${JSON.stringify(base)}, fn: ${JSON.stringify(fn)}, ` +
+      `media: ${media ? JSON.stringify(media) : "null"} },`
+  );
+});
+
+lines.push("];");
+lines.push("");
+lines.push("export type StripDef = { id: string; led: number; x: number; w: number };");
+lines.push("");
+lines.push("/* The six rear / side LEDs, in OpenRGB zone order. */");
+lines.push("export const STRIP: StripDef[] = [");
+lines.push('  { id: "U1", led: 63, x: 0, w: 1 },');
+lines.push('  { id: "U2", led: 64, x: 1, w: 1 },');
+lines.push('  { id: "U3", led: 65, x: 2, w: 1 },');
+lines.push('  { id: "U4", led: 66, x: 3, w: 1 },');
+lines.push('  { id: "U5", led: 67, x: 4, w: 1 },');
+lines.push('  { id: "U6", led: 68, x: 5, w: 1 },');
+lines.push("];");
+lines.push("");
+lines.push("export const KEY_COUNT = KEYS.length;");
+lines.push("export const LED_COUNT = 69;");
+lines.push("");
+
+writeFileSync(out, lines.join("\n"));
+console.log(`wrote ${out.pathname} (${keys.length} keys)`);
