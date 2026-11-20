@@ -53,14 +53,39 @@ jobs:
       - name: Verify the bundle and the installer
         shell: pwsh
         run: |
-          $log = Join-Path $env:LOCALAPPDATA "KeyForge\keyforge.log"
-          function Run-Selftest([string]$exe) {
-            Remove-Item $log -ErrorAction SilentlyContinue
+          $data = Join-Path $env:LOCALAPPDATA "KeyForge"
+          $log   = Join-Path $data "keyforge.log"
+          $boot  = Join-Path $data "boot.log"
+          $crash = Join-Path $data "crash.log"
+
+          # Everything that could explain a silent death: the launcher's boot
+          # marker, any traceback, the app log, whether the one-file bundle
+          # unpacked, and what is still running.
+          function Show-Logs {
+            foreach ($f in @($boot, $crash, $log)) {
+              Write-Host "--- $f"
+              if (Test-Path $f) { Get-Content $f } else { Write-Host "(absent)" }
+            }
+            Write-Host "--- unpacked bundles"
+            Get-ChildItem $env:TEMP -Filter "_MEI*" -Directory -ErrorAction SilentlyContinue |
+              Select-Object Name, LastWriteTime | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "--- KeyForge processes"
+            Get-Process KeyForge -ErrorAction SilentlyContinue |
+              Select-Object Id, StartTime, Responding | Format-Table -AutoSize | Out-String | Write-Host
+          }
+
+          function Run-Selftest([string]$exe, [int]$timeoutSec = 180) {
+            Remove-Item $log, $boot, $crash -ErrorAction SilentlyContinue
             $p = Start-Process -FilePath $exe -ArgumentList "--selftest" -PassThru
-            $done = $p.WaitForExit(90000)
-            Write-Host "--- keyforge.log ($exe)"
-            if (Test-Path $log) { Get-Content $log }
-            if (-not $done) { Stop-Process -Id $p.Id -Force; throw "selftest hung: $exe" }
+            if (-not $p.WaitForExit($timeoutSec * 1000)) {
+              taskkill /F /T /PID $p.Id | Out-Null
+              Show-Logs
+              # No boot marker means the crash was in the PyInstaller
+              # bootloader, before any of our code ran.
+              if (-not (Test-Path $boot)) { throw "the bootloader never started Python: $exe" }
+              throw "selftest hung: $exe"
+            }
+            Show-Logs
             if ($p.ExitCode -ne 0) { throw "selftest failed ($($p.ExitCode)): $exe" }
           }
 
@@ -95,10 +120,10 @@ jobs:
               }
             }
           } finally {
-            if ($srv -and -not $srv.HasExited) { Stop-Process -Id $srv.Id -Force }
+            if ($srv) { taskkill /F /T /PID $srv.Id | Out-Null }
           }
           if (-not $ok) {
-            if (Test-Path $log) { Write-Host "--- keyforge.log"; Get-Content $log }
+            Show-Logs
             Get-NetTCPConnection -LocalPort 8901 -ErrorAction SilentlyContinue |
               Format-Table -AutoSize | Out-String | Write-Host
             throw "the installed app never served the UI on port 8901"

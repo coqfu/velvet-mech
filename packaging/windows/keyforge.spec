@@ -9,8 +9,11 @@ service, the built UI, the firmware image it flashes and hidapi.dll.  Use
 packaging/windows/build.ps1 (or the CI workflow) rather than calling this
 directly: the DLL has to be fetched first.
 
-Start-up failures are invisible in a windowed build, so server.py writes them
-to %LOCALAPPDATA%\\KeyForge\\keyforge.log and to a message box.
+The entry point is launcher.py, not server.py: a windowed build has no console,
+so PyInstaller turns an import-time exception into a modal message box, which
+in a headless run is indistinguishable from a hang.  launcher.py writes
+boot.log/crash.log around the import, and windowed tracebacks are disabled so a
+crash exits instead of waiting for someone to click OK.
 """
 
 import os
@@ -44,8 +47,8 @@ datas = [
 ] + doc_files
 
 a = Analysis(
-    [os.path.join(APP, "server.py")],
-    pathex=[APP],
+    [os.path.join(SPECPATH, "launcher.py")],
+    pathex=[SPECPATH, APP],
     binaries=[(hidapi, ".")],
     datas=datas,
     hiddenimports=["soundcard"],
@@ -69,7 +72,8 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    disable_windowed_traceback=False,
+    # No modal traceback: exit with the exception in crash.log instead.
+    disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
