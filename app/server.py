@@ -1699,19 +1699,64 @@ def _message(text, title="KeyForge"):
         pass
 
 
+def selftest():
+    """Check the things the UI needs before it can work; log and print them.
+
+    A windowed build has no console, so this also lands in keyforge.log.  It
+    is what CI runs to prove that the bundle is complete.
+    """
+    results = []
+
+    def check(name, ok, detail="", fatal=True):
+        results.append((name, bool(ok), fatal))
+        log("selftest %-20s %s  %s" % (name, "ok  " if ok else "FAIL", detail))
+        print("%-20s %s  %s" % (name, "ok  " if ok else "FAIL", detail))
+
+    check("hidapi", LIB is not None, LIB_ERROR or "loaded")
+    check("ui bundle", os.path.isfile(os.path.join(DIST, "index.html")), DIST)
+    mapfile = os.path.join(os.path.dirname(ROOT), "host", "map.json")
+    check("key map", os.path.isfile(mapfile), mapfile)
+    hexfile = os.path.join(os.path.dirname(ROOT), "build", "keyboard.hex")
+    check("firmware image", os.path.isfile(hexfile), hexfile, fatal=False)
+    try:
+        probe = os.path.join(DATA_DIR, ".write-test")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(probe)
+        check("data dir", True, DATA_DIR)
+    except OSError as exc:
+        check("data dir", False, "%s (%s)" % (DATA_DIR, exc))
+    tool = _wchisp_path()
+    check("wchisp", tool is not None,
+          tool or "not found - flashing unavailable", fatal=False)
+    if LIB is not None:
+        found = enumerate_raw()
+        check("keyboard", found is not None,
+              found[0] if found else "not connected", fatal=False)
+
+    failed = [name for name, ok, fatal in results if fatal and not ok]
+    log("selftest %s" % ("FAILED: " + ", ".join(failed) if failed else "ok"))
+    return 1 if failed else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="KeyForge local service")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--dev", action="store_true", help="point the browser at the Vite dev server")
+    ap.add_argument("--selftest", action="store_true",
+                    help="check hidapi and the bundled files, log the result, exit")
     args = ap.parse_args()
 
     log("start %s  data %s" % (sys.argv[0], DATA_DIR))
 
+    if args.selftest:
+        return selftest()
+
     if LIB is None:
         _message(LIB_ERROR or "hidapi is missing")
-        return
+        return 1
 
     try:
         if DEV.open():
@@ -1746,4 +1791,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

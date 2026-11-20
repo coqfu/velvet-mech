@@ -1,8 +1,8 @@
 name: windows-exe
 
-# Builds KeyForge.exe on a real Windows runner: that is the only way to get a
-# Windows binary, since PyInstaller cannot cross-compile.  Tags publish the exe
-# as a release asset; manual runs keep it as a workflow artifact.
+# Builds KeyForge.exe on a real Windows runner: PyInstaller cannot cross-compile,
+# so this is the only way to produce a Windows binary.  Tags publish the exe as a
+# release asset; manual runs keep it as a workflow artifact.
 on:
   workflow_dispatch:
   push:
@@ -29,40 +29,54 @@ jobs:
         shell: pwsh
         run: ./packaging/windows/build.ps1
 
-      - name: Smoke test the exe
-        shell: pwsh
-        run: |
-          $exe = "dist/windows/KeyForge.exe"
-          if (-not (Test-Path $exe)) { throw "no exe" }
-          $p = Start-Process -FilePath $exe -ArgumentList "--no-browser", "--port", "8901" -PassThru
-          $ok = $false
-          try {
-            for ($i = 0; $i -lt 30; $i++) {
-              Start-Sleep -Milliseconds 500
-              try {
-                $status = Invoke-WebRequest "http://127.0.0.1:8901/api/status" -UseBasicParsing -TimeoutSec 2
-                $page = Invoke-WebRequest "http://127.0.0.1:8901/" -UseBasicParsing -TimeoutSec 2
-                if ($status.StatusCode -eq 200 -and $page.Content -match "index-") {
-                  Write-Host "status:" $status.Content
-                  Write-Host "ui: served"
-                  $ok = $true
-                  break
-                }
-              } catch { }
-            }
-          } finally {
-            if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
-          }
-          if (-not $ok) { throw "the exe never answered on port 8901" }
-
-          $log = Join-Path $env:LOCALAPPDATA "KeyForge\keyforge.log"
-          if (Test-Path $log) { Write-Host "--- log"; Get-Content $log }
-
+      # Upload before the checks: a build that starts but fails a check is still
+      # worth keeping, and the next step needs the log it produces.
       - uses: actions/upload-artifact@v4
         with:
           name: KeyForge-windows-x64
           path: dist/windows/KeyForge.exe
           if-no-files-found: error
+
+      - name: Selftest inside the exe
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:LOCALAPPDATA "KeyForge\keyforge.log"
+          Remove-Item $log -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath "dist/windows/KeyForge.exe" -ArgumentList "--selftest" -Wait -PassThru
+          if (Test-Path $log) { Write-Host "--- keyforge.log"; Get-Content $log }
+          if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
+
+      - name: Serve the UI from the exe
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:LOCALAPPDATA "KeyForge\keyforge.log"
+          $p = Start-Process -FilePath "dist/windows/KeyForge.exe" -ArgumentList "--no-browser", "--port", "8901" -PassThru
+          $ok = $false
+          try {
+            for ($i = 0; $i -lt 40; $i++) {
+              Start-Sleep -Milliseconds 700
+              $code = curl.exe -s -o page.html -w "%{http_code}" --max-time 3 http://127.0.0.1:8901/
+              if ($code -eq "200" -and (Select-String -Path page.html -Pattern "index-" -Quiet)) {
+                Write-Host "ui: served (index.html references a bundle)"
+                $api = curl.exe -s --max-time 3 http://127.0.0.1:8901/api/status
+                Write-Host "status:" $api
+                $ok = $true
+                break
+              }
+            }
+          } finally {
+            if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+          if (-not $ok) {
+            Write-Host "--- process"
+            if ($p.HasExited) { Write-Host "exited with code $($p.ExitCode)" }
+            else { Write-Host "still running, pid $($p.Id)" }
+            Write-Host "--- listeners"
+            Get-NetTCPConnection -LocalPort 8901 -ErrorAction SilentlyContinue |
+              Format-Table -AutoSize | Out-String | Write-Host
+            if (Test-Path $log) { Write-Host "--- keyforge.log"; Get-Content $log }
+            throw "the exe never served the UI on port 8901"
+          }
 
       - name: Attach the exe to the release
         if: startsWith(github.ref, 'refs/tags/')

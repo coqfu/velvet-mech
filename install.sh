@@ -37,6 +37,10 @@ fi
 echo "Installing to $APP_DIR"
 mkdir -p "$APP_DIR" "$BIN_DIR" "$DESKTOP_DIR"
 
+# A previous install may hold a UI bundle with different asset hashes; drop it
+# so the served index.html and its assets always belong to the same build.
+rm -rf "$APP_DIR/app/ui/dist" "$APP_DIR/app/ui/dist.prev" "$APP_DIR/app/ui/dist.next"
+
 # The app, its shared data and the firmware image it flashes.  Sources are
 # copied too so the installed tree can rebuild the firmware in place.
 tar -C "$ROOT" -cf - \
@@ -47,7 +51,7 @@ tar -C "$ROOT" -cf - \
     --exclude='host/*.log' \
     --exclude='app/*.log' \
     --exclude='packaging/windows/hidapi.dll' \
-    --exclude='dist' \
+    --exclude='dist/windows' \
     --exclude='tools/wchisp' \
     app host build include src tools packaging Makefile README.md LICENSE docs \
     | tar -C "$APP_DIR" -xf -
