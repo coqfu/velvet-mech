@@ -45,8 +45,11 @@ tar -C "$ROOT" -cf - \
     --exclude='app/ui/dist.next' \
     --exclude='__pycache__' \
     --exclude='host/*.log' \
+    --exclude='app/*.log' \
+    --exclude='packaging/windows/hidapi.dll' \
+    --exclude='dist' \
     --exclude='tools/wchisp' \
-    app host build include src tools Makefile README.md LICENSE docs \
+    app host build include src tools packaging Makefile README.md LICENSE docs \
     | tar -C "$APP_DIR" -xf -
 
 cat > "$BIN_DIR/keyforge" <<LAUNCHER

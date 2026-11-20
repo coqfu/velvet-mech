@@ -1,0 +1,5 @@
+numpy>=1.24
+
+# Windows (and macOS) record the output through SoundCard's WASAPI/CoreAudio
+# loopback.  Linux does not need it: the service uses parec instead.
+soundcard>=0.4.4; sys_platform != "linux"

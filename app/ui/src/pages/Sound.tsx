@@ -130,7 +130,7 @@ export function SoundPage() {
           <div style={{ marginTop: 14 }}>
             <KV
               rows={[
-                ["Input", source ?? "no monitor source"],
+                ["Input", source ?? "no capture source"],
                 ["Capture state", running ? "running" : "idle"],
                 ["Stream", running ? `${audio?.fps.toFixed(1) ?? "—"} fps of ${audio?.targetFps ?? 45}` : "not streaming"],
                 ["Rendered by", "host (app/server.py) - not firmware"],
@@ -172,12 +172,12 @@ export function SoundPage() {
           <p className="field__hint" style={{ marginTop: 8, lineHeight: 1.6 }}>
             {source
               ? `Recording ${source}.`
-              : "No monitor source was found. Play audio through an output device so the sound server can expose its monitor."}
+              : "No capture source was found. Play something through an output device: Windows records it as WASAPI loopback, Linux exposes it as a monitor."}
           </p>
           <p className="field__hint field__hint--prose" style={{ marginTop: 8, lineHeight: 1.6 }}>
-            The keyboard has no microphone and no audio input. This page records the monitor of the
-            machine's output, analyses it here, and sends one colour per LED. Nothing about the sound
-            is stored on the board.
+            The keyboard has no microphone and no audio input. This page records what the machine is
+            playing - the output monitor on Linux, WASAPI loopback on Windows - analyses it here, and
+            sends one colour per LED. Nothing about the sound is stored on the board.
           </p>
         </Section>
 
@@ -246,7 +246,7 @@ export function SoundPage() {
           </p>
         </Section>
 
-        <Section no="05" title="Capture source" aside={audio ? `${audio.sources.length} monitors` : "—"}>
+        <Section no="05" title="Capture source" aside={audio ? `${audio.sources.length} sources` : "—"}>
           <Chips
             items={(audio?.sources ?? []).map((s) => ({
               id: s.id,
@@ -256,8 +256,9 @@ export function SoundPage() {
             onPick={(id) => void send({ source: id, ...(running ? { enabled: true } : {}) })}
           />
           <p className="field__hint field__hint--prose" style={{ marginTop: 8, lineHeight: 1.6 }}>
-            A monitor is the sound server's copy of what a sink is playing. Choose the output you
-            actually hear; a Bluetooth sink may expose its monitor only while it is playing.
+            On Linux a monitor is the sound server's copy of what a sink is playing; on Windows the
+            same thing is the WASAPI loopback of the default speaker. Choose the output you actually
+            hear - a Bluetooth sink may expose its monitor only while it is playing.
           </p>
         </Section>
       </Panel>

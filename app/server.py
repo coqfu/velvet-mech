@@ -25,13 +25,65 @@ import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+FROZEN = bool(getattr(sys, "frozen", False))
+BUNDLE = getattr(sys, "_MEIPASS", None)
+
+
+def _app_root():
+    """Directory holding ui/dist and host/map.json (the app package)."""
+    if FROZEN:
+        return os.path.join(BUNDLE or os.path.dirname(sys.executable), "app")
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+ROOT = _app_root()
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+
+def _data_dir():
+    """Writable directory for profiles.json and the log.
+
+    A frozen build unpacks to a temporary directory and an installed tree may
+    be read-only, so the store lives with the user's data instead.  A source
+    checkout keeps it in app/ so existing profiles keep working.
+    """
+    if not FROZEN and os.path.isdir(ROOT) and os.access(ROOT, os.W_OK):
+        return ROOT
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        path = os.path.join(base, "KeyForge")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(
+            os.path.expanduser("~"), ".local", "share")
+        path = os.path.join(base, "keyforge")
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        return ROOT
+    return path
+
+
+DATA_DIR = _data_dir()
+LOG_PATH = os.path.join(DATA_DIR, "keyforge.log")
+
+# A console-less Windows build must not flash a console window for every
+# helper process it starts.
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
 import audio  # noqa: E402  host-side sound capture, app/audio.py
 DIST = os.path.join(ROOT, "ui", "dist")
-PROFILES = os.path.join(ROOT, "profiles.json")
+PROFILES = os.path.join(DATA_DIR, "profiles.json")
+
+
+def log(message):
+    """One line in keyforge.log; the windowed build has no console."""
+    line = "%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), message)
+    try:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
 
 # --------------------------------------------------------------- protocol --
 PACKET = 65
@@ -85,52 +137,75 @@ FRAME_MS = 11.2
 
 
 def _hidapi():
-    for name in ("libhidapi-hidraw.so.0", "libhidapi-hidraw.so",
-                 "libhidapi-libusb.so.0", "libhidapi-libusb.so"):
-        try:
-            return ctypes.CDLL(name)
-        except OSError:
-            continue
-    raise RuntimeError("libhidapi not found (install hidapi)")
+    if os.name == "nt":
+        names = ("hidapi.dll", "libhidapi-0.dll", "libhidapi.dll")
+    elif sys.platform == "darwin":
+        names = ("libhidapi.dylib",
+                 "/opt/homebrew/lib/libhidapi.dylib",
+                 "/usr/local/lib/libhidapi.dylib")
+    else:
+        names = ("libhidapi-hidraw.so.0", "libhidapi-hidraw.so",
+                 "libhidapi-libusb.so.0", "libhidapi-libusb.so")
+
+    # A frozen build unpacks hidapi.dll beside the bundled modules, and the
+    # loader does not search there on its own.
+    here = os.path.dirname(os.path.abspath(sys.executable))
+    search = [p for p in (BUNDLE, here, os.path.dirname(ROOT)) if p]
+    last = None
+    for name in names:
+        for candidate in [name] + [os.path.join(d, name) for d in search]:
+            try:
+                return ctypes.CDLL(candidate)
+            except OSError as exc:
+                last = exc
+    raise RuntimeError(
+        "hidapi not found (%s). Windows: keep hidapi.dll next to "
+        "KeyForge.exe. Linux: install hidapi." % last)
 
 
-LIB = _hidapi()
+try:
+    LIB = _hidapi()
+    LIB_ERROR = None
+except RuntimeError as exc:
+    LIB = None
+    LIB_ERROR = str(exc)
 
+if LIB is not None:
+    class Info(ctypes.Structure):
+        pass
 
-class Info(ctypes.Structure):
-    pass
+    Info._fields_ = [
+        ("path", ctypes.c_char_p),
+        ("vendor_id", ctypes.c_ushort),
+        ("product_id", ctypes.c_ushort),
+        ("serial_number", ctypes.c_wchar_p),
+        ("release_number", ctypes.c_ushort),
+        ("manufacturer_string", ctypes.c_wchar_p),
+        ("product_string", ctypes.c_wchar_p),
+        ("usage_page", ctypes.c_ushort),
+        ("usage", ctypes.c_ushort),
+        ("interface_number", ctypes.c_int),
+        ("next", ctypes.POINTER(Info)),
+    ]
 
-
-Info._fields_ = [
-    ("path", ctypes.c_char_p),
-    ("vendor_id", ctypes.c_ushort),
-    ("product_id", ctypes.c_ushort),
-    ("serial_number", ctypes.c_wchar_p),
-    ("release_number", ctypes.c_ushort),
-    ("manufacturer_string", ctypes.c_wchar_p),
-    ("product_string", ctypes.c_wchar_p),
-    ("usage_page", ctypes.c_ushort),
-    ("usage", ctypes.c_ushort),
-    ("interface_number", ctypes.c_int),
-    ("next", ctypes.POINTER(Info)),
-]
-
-LIB.hid_enumerate.restype = ctypes.POINTER(Info)
-LIB.hid_enumerate.argtypes = [ctypes.c_ushort, ctypes.c_ushort]
-LIB.hid_free_enumeration.argtypes = [ctypes.POINTER(Info)]
-LIB.hid_free_enumeration.restype = None
-LIB.hid_open_path.restype = ctypes.c_void_p
-LIB.hid_open_path.argtypes = [ctypes.c_char_p]
-LIB.hid_close.argtypes = [ctypes.c_void_p]
-LIB.hid_close.restype = None
-LIB.hid_write.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]
-LIB.hid_write.restype = ctypes.c_int
-LIB.hid_read_timeout.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int]
-LIB.hid_read_timeout.restype = ctypes.c_int
+    LIB.hid_enumerate.restype = ctypes.POINTER(Info)
+    LIB.hid_enumerate.argtypes = [ctypes.c_ushort, ctypes.c_ushort]
+    LIB.hid_free_enumeration.argtypes = [ctypes.POINTER(Info)]
+    LIB.hid_free_enumeration.restype = None
+    LIB.hid_open_path.restype = ctypes.c_void_p
+    LIB.hid_open_path.argtypes = [ctypes.c_char_p]
+    LIB.hid_close.argtypes = [ctypes.c_void_p]
+    LIB.hid_close.restype = None
+    LIB.hid_write.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]
+    LIB.hid_write.restype = ctypes.c_int
+    LIB.hid_read_timeout.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int]
+    LIB.hid_read_timeout.restype = ctypes.c_int
 
 
 def enumerate_raw():
     """(path, vendor, product) of the keyboard's raw-HID collection."""
+    if LIB is None:
+        return None
     head = LIB.hid_enumerate(0, 0)
     node = head
     found = None
@@ -949,6 +1024,10 @@ def enter_bootloader():
 
 # ------------------------------------------------------------- flashing --
 ISP_ID = ("4348", "55e0")           # WCH ISP bootloader enumerated by the ROM
+WINUSB_HINT = (
+    " On Windows the ROM loader also needs the WinUSB driver bound to "
+    "4348:55e0 (install it with Zadig, see docs/WINDOWS.md)."
+    if os.name == "nt" else "")
 
 FLASH_LOCK = threading.Lock()
 FLASH = {
@@ -963,6 +1042,8 @@ FLASH = {
 
 def isp_present():
     """True when the WCH ISP bootloader is on the bus."""
+    if os.name == "nt":
+        return _isp_present_windows()
     for entry in glob.glob("/sys/bus/usb/devices/*/idVendor"):
         folder = os.path.dirname(entry)
         try:
@@ -988,18 +1069,59 @@ def flash_status():
         return dict(FLASH)
 
 
+_ISP_CACHE = {"at": 0.0, "value": False}
+
+
+def _isp_present_windows():
+    """Windows has no /sys, so ask the flasher that will do the work.
+
+    `wchisp probe` scans the USB bus and reports how many WCH ISP devices it
+    found.  The answer is cached briefly: the flash job polls every 200 ms and
+    each probe is a process launch.
+    """
+    now = time.time()
+    if now - _ISP_CACHE["at"] < 0.6:
+        return _ISP_CACHE["value"]
+    tool = _wchisp_path()
+    found = False
+    if tool:
+        try:
+            proc = subprocess.run([tool, "probe"], capture_output=True, text=True,
+                                  timeout=15, creationflags=NO_WINDOW)
+            text = ((proc.stdout or "") + (proc.stderr or "")).lower()
+            found = "found 0 usb devices" not in text
+        except (OSError, subprocess.SubprocessError):
+            found = False
+    _ISP_CACHE.update(at=now, value=found)
+    return found
+
+
+def _wchisp_path():
+    exe = "wchisp.exe" if os.name == "nt" else "wchisp"
+    root = os.path.dirname(ROOT)
+    candidates = [
+        shutil.which("wchisp"),
+        os.path.join(os.path.expanduser("~"), ".cargo", "bin", exe),
+        os.path.join(os.path.dirname(os.path.abspath(sys.executable)), exe),
+        os.path.join(root, "tools", "wchisp", "target", "release", exe),
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
 def _flash_paths():
     root = os.path.dirname(ROOT)
     # Prefer a wchisp the user installed (cargo install wchisp, or a distro
     # package); fall back to the in-tree build the developer machine used.
-    tool = shutil.which("wchisp") or os.path.join(
-        root, "tools", "wchisp", "target", "release", "wchisp")
+    tool = _wchisp_path()
     hexfile = os.path.join(root, "build", "keyboard.hex")
-    if not os.path.exists(tool):
+    if not tool:
         raise RuntimeError(
             "wchisp is not installed. Install it with 'cargo install wchisp' "
             "or clone https://github.com/ch32-rs/wchisp into tools/wchisp and "
-            "build it with cargo.")
+            "build it with cargo (Windows: see docs/WINDOWS.md).")
     if not os.path.exists(hexfile):
         raise RuntimeError("build/keyboard.hex is missing - run `make keyboard`")
     return tool, hexfile
@@ -1022,7 +1144,8 @@ def _flash_job(tool, hexfile, wait_s=150.0):
         else:
             _flash_set(state="failed", ok=False,
                        message="The bootloader never appeared. Fit the boot jumper, "
-                               "then power-cycle the keyboard and press Flash again.")
+                               "then power-cycle the keyboard and press Flash again."
+                               + WINUSB_HINT)
             return
 
     _flash_set(state="writing", waited=round(time.time() - start, 1),
@@ -1041,14 +1164,16 @@ def _flash_job(tool, hexfile, wait_s=150.0):
             while time.time() < deadline and not isp_present():
                 time.sleep(0.2)
             if not isp_present():
-                last = "the bootloader did not come back for another attempt"
+                last = ("the bootloader did not come back for another attempt."
+                        + WINUSB_HINT)
                 break
             _flash_set(state="writing", attempts=attempt,
                        message="Bootloader found - writing build/keyboard.hex.")
 
         try:
             proc = subprocess.run([tool, "flash", hexfile],
-                                  capture_output=True, text=True, timeout=90)
+                                  capture_output=True, text=True, timeout=90,
+                                  creationflags=NO_WINDOW)
         except subprocess.TimeoutExpired:
             last = "wchisp timed out"
             continue
@@ -1215,9 +1340,9 @@ def audio_apply(patch):
     """Start, stop or retune the host renderer."""
     wanted_source = patch.get("source")
     if wanted_source:
-        monitors = {name for name, _state in audio._sources() if name.endswith(".monitor")}
-        if wanted_source not in monitors:
-            raise RuntimeError("no such monitor source")
+        known = {name for name, _state in audio._sources()}
+        if wanted_source not in known:
+            raise RuntimeError("no such capture source")
         AUDIO_PARAMS["source"] = wanted_source
     if patch.get("mode") is not None:
         if patch["mode"] not in audio.MODES:
@@ -1274,8 +1399,9 @@ def audio_state():
         "sources": [
             {"id": name, "state": st}
             for name, st in audio._sources()
-            if name.endswith(".monitor")
+            if name.endswith(".monitor") or audio.BACKEND == "soundcard"
         ],
+        "backend": audio.BACKEND,
         "targetFps": audio.TARGET_FPS,
     }
     return state
@@ -1284,7 +1410,7 @@ def audio_state():
 # --------------------------------------------------------------- profiles --
 def load_store():
     try:
-        with open(PROFILES) as f:
+        with open(PROFILES, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
         data = {}
@@ -1297,7 +1423,7 @@ def load_store():
 
 def write_store(data):
     tmp = PROFILES + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1)
     os.replace(tmp, PROFILES)
 
@@ -1561,6 +1687,18 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
 
+def _message(text, title="KeyForge"):
+    """Show a fatal error where the windowed build can be seen."""
+    print(text)
+    log(text)
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.user32.MessageBoxW(None, text, title, 0x10)
+    except Exception:                                               # noqa: BLE001
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser(description="KeyForge local service")
     ap.add_argument("--port", type=int, default=8765)
@@ -1569,16 +1707,29 @@ def main():
     ap.add_argument("--dev", action="store_true", help="point the browser at the Vite dev server")
     args = ap.parse_args()
 
+    log("start %s  data %s" % (sys.argv[0], DATA_DIR))
+
+    if LIB is None:
+        _message(LIB_ERROR or "hidapi is missing")
+        return
+
     try:
         if DEV.open():
             sync_from_device()
     except Exception:                                               # noqa: BLE001
         pass
 
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    try:
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
+    except OSError as exc:
+        _message("KeyForge could not start on %s:%d - %s\n\n"
+                 "Another instance may already be running."
+                 % (args.host, args.port, exc))
+        return
     url = "http://%s:%d/" % (args.host, args.port)
     print("KeyForge service  ->  %s" % url)
     print("keyboard: %s" % (DEV.path or "not connected"))
+    log("listening on %s, keyboard %s" % (url, DEV.path or "not connected"))
     if args.dev:
         print("UI:       http://127.0.0.1:5173/ (vite)")
     if not args.no_browser:
@@ -1590,6 +1741,7 @@ def main():
     except KeyboardInterrupt:
         print("\nstopped")
     finally:
+        log("stopping")
         audio_stop()
 
 

@@ -7,6 +7,7 @@ build/*
 __pycache__/
 *.pyc
 host/*.log
+app/*.log
 
 # UI dependencies and stale bundles.  app/ui/dist IS committed: the app runs
 # with python only, and a rebuild is only needed after changing the UI.
@@ -21,13 +22,14 @@ tools/wchisp/
 app/profiles.json
 .DS_Store
 
-# WCH datasheet (copyright WCH; download it separately)
-docs/CH555DS1.PDF
-docs/CH555DS1.txt
-
 # WCH datasheet (copyright WCH; download it from them)
 docs/CH555DS1.PDF
 docs/CH555DS1.txt
 
 # Third-party WCH SDK (its own repository, not redistributed)
 tools/WCH_CH555/
+
+# Windows build output (packaging/windows/build.ps1 or CI)
+dist/windows/
+packaging/windows/hidapi.dll
+build/pyinstaller-windows/

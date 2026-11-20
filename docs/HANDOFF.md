@@ -543,6 +543,49 @@ Fix (`src/led.c`):
   quarter of the cycle instead of jumping 40 → 255 when `d` wraps.  Max step
   across the wrap is now 2 counts (was 215).
 
+## Windows and the single-file build (item 45)
+
+The host app now runs on Windows as one `KeyForge.exe`; the firmware is
+unchanged (same `build/keyboard.hex`).
+
+* **Platform layer in `app/server.py`**: `_hidapi()` tries `hidapi.dll` /
+  `libhidapi-0.dll` / `libhidapi.dll` on Windows (and dylib paths on macOS),
+  searching `_MEIPASS`, the executable's directory and the app directory
+  instead of relying on the loader's search path. If it still fails, `LIB` is
+  `None`, `LIB_ERROR` holds the reason, and `main()` reports it in a message box
+  and `%LOCALAPPDATA%\KeyForge\keyforge.log` rather than dying in an import.
+* **State location**: `_data_dir()` keeps `app/profiles.json` for a writable
+  source checkout, and uses `%LOCALAPPDATA%\KeyForge` (frozen or read-only)
+  or `$XDG_DATA_HOME/keyforge`. `load_store`/`write_store` now open UTF-8
+  explicitly, which matters on Windows where the default is cp1252.
+* **Flashing**: `_wchisp_path()` checks `PATH`, `~/.cargo/bin/wchisp.exe`, the
+  exe's directory and the in-tree build. `isp_present()` keeps the `/sys` scan
+  on Linux; on Windows it runs `wchisp probe` and caches the answer 0.6 s,
+  because the job polls every 200 ms and each probe is a process launch. The
+  failure messages append the WinUSB/Zadig hint on Windows.
+* **No console flashing**: every helper process passes `creationflags=
+  NO_WINDOW` (0x08000000) on Windows.
+* **Audio**: `app/audio.py` now has a `Capture` interface with `ParecCapture`
+  (Linux, unchanged) and `SoundcardCapture` (WASAPI loopback via SoundCard,
+  used on Windows/macOS). `KEYFORGE_CAPTURE=soundcard` forces the second one on
+  Linux, which is how it was tested here: 44.8 fps sustained, 112 frames in
+  2.5 s, clean stop. Two bugs surfaced in that test - SoundCard 0.4.x
+  `recorder()` has no `data_type` argument (falls back to float32), and closing
+  the recorder before joining the pump thread aborted libpulse
+  (`pa_stream_get_state` assertion), so `close()` now joins first.
+* **Packaging**: `packaging/windows/keyforge.spec` (one file, windowed,
+  `hidapi.dll` from `binaries`), `packaging/windows/build.ps1` (installs
+  `app/requirements.txt` + PyInstaller, downloads
+  `hidapi-0.16.0/hidapi-win.zip`, runs PyInstaller into `dist/windows`), and
+  `.github/workflows/windows-exe.yml` (builds on `windows-latest`, smoke-tests
+  `/api/status` and the UI, uploads the artifact, attaches it to a `v*`
+  release). PyInstaller cannot cross-compile, so the exe must come from a
+  Windows runner.
+* **Docs**: `docs/WINDOWS.md` states what is verified (the exe builds, starts
+  and serves the UI in CI) and what is not (USB against the board on Windows,
+  flashing on Windows, audio on Windows hardware), plus Zadig, SmartScreen and
+  uninstall.
+
 ## Things to watch / next candidates
 
 1. **Animation is ~1.7× faster in wall-clock** than before, because the clock

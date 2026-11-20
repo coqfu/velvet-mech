@@ -30,6 +30,12 @@ required on this board: a plain replug never exposes the ROM loader.
 The built UI is committed, so running the app needs Python only. The prebuilt
 firmware is committed too, so flashing does not need `sdcc` either.
 
+**Windows.** The rest of this guide is the Linux install. On Windows, KeyForge
+is a single `KeyForge.exe` (take it from the Releases page or build it with
+`packaging\windows\build.ps1`), and the flashing step needs `wchisp.exe` plus
+a WinUSB driver for the bootloader. `docs/WINDOWS.md` covers all of it, and is
+explicit about which parts are verified on Windows and which are not.
+
 ## 1. Install the app
 
 ```sh

@@ -1,0 +1,79 @@
+name: windows-exe
+
+# Builds KeyForge.exe on a real Windows runner: that is the only way to get a
+# Windows binary, since PyInstaller cannot cross-compile.  Tags publish the exe
+# as a release asset; manual runs keep it as a workflow artifact.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            app/requirements.txt
+            packaging/windows/requirements-build.txt
+
+      - name: Build KeyForge.exe
+        shell: pwsh
+        run: ./packaging/windows/build.ps1
+
+      - name: Smoke test the exe
+        shell: pwsh
+        run: |
+          $exe = "dist/windows/KeyForge.exe"
+          if (-not (Test-Path $exe)) { throw "no exe" }
+          $p = Start-Process -FilePath $exe -ArgumentList "--no-browser", "--port", "8901" -PassThru
+          $ok = $false
+          try {
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Milliseconds 500
+              try {
+                $status = Invoke-WebRequest "http://127.0.0.1:8901/api/status" -UseBasicParsing -TimeoutSec 2
+                $page = Invoke-WebRequest "http://127.0.0.1:8901/" -UseBasicParsing -TimeoutSec 2
+                if ($status.StatusCode -eq 200 -and $page.Content -match "index-") {
+                  Write-Host "status:" $status.Content
+                  Write-Host "ui: served"
+                  $ok = $true
+                  break
+                }
+              } catch { }
+            }
+          } finally {
+            if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+          if (-not $ok) { throw "the exe never answered on port 8901" }
+
+          $log = Join-Path $env:LOCALAPPDATA "KeyForge\keyforge.log"
+          if (Test-Path $log) { Write-Host "--- log"; Get-Content $log }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KeyForge-windows-x64
+          path: dist/windows/KeyForge.exe
+          if-no-files-found: error
+
+      - name: Attach the exe to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notes = "KeyForge for Windows x64 (single file). Run it and the UI opens at http://127.0.0.1:8765/. Hardware is the iGear Raptor only; flashing also needs wchisp and the WinUSB driver - see docs/WINDOWS.md."
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "KeyForge $tag" --notes $notes
+          }
+          gh release upload $tag dist/windows/KeyForge.exe --clobber

@@ -13,6 +13,11 @@ re-deriving them (see "Porting" in `docs/INSTALL.md`).
 **Start here:** `docs/INSTALL.md` walks from dependencies to a flashed keyboard.
 The control app is KeyForge (`app/`), a local web UI plus a Python service.
 
+**Windows:** KeyForge ships as a single `KeyForge.exe` (no Python needed) -
+download it from the repository's Releases page or build it with
+`packaging\windows\build.ps1`. See `docs/WINDOWS.md`, including what is and is
+not verified on Windows.
+
 **Licence:** MIT for everything in this repository (`LICENSE`). The optional
 flasher, [wchisp](https://github.com/ch32-rs/wchisp), is a separate GPL-2.0
 program that this repository calls but does not contain.

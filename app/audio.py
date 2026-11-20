@@ -1,8 +1,9 @@
 """Host-side sound-reactive lighting.
 
 The CH555 has no microphone and no audio input, so nothing here runs on the
-keyboard.  This module captures the monitor of the machine's default output
-with `parec`, turns it into 14 logarithmic bands plus a level, and renders one
+keyboard.  This module captures what the machine is playing - the monitor of
+the default output with `parec` on Linux, WASAPI loopback through SoundCard on
+Windows - turns it into 14 logarithmic bands plus a level, and renders one
 colour per LED.  The server streams those frames over the OpenRGB LED path,
 which is the only path fast enough (measured ~180 frames/s on this board).
 
@@ -17,6 +18,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import threading
 import time
 
@@ -50,16 +52,36 @@ PALETTES = {
 }
 
 
+# Which capture implementation this platform uses.  Linux keeps `parec`
+# because that path is verified on the board; Windows (and macOS) go through
+# SoundCard, whose WASAPI backend records an output device (loopback) without
+# a virtual cable.  The env override lets the SoundCard path be exercised on
+# Linux during development.
+BACKEND = ("soundcard"
+           if os.name == "nt" or sys.platform == "darwin"
+           or os.environ.get("KEYFORGE_CAPTURE") == "soundcard"
+           else "parec")
+
+LOOPBACK_ID = "System output (loopback)"
+
+# A console-less Windows build must not flash a console window for every
+# helper process it starts.
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+
 def _run(cmd, timeout=4):
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                             creationflags=NO_WINDOW)
         return out.stdout
     except (OSError, subprocess.SubprocessError):
         return ""
 
 
 def _sources():
-    """[(name, state)] from pactl, or [] when there is no sound server."""
+    """[(name, state)] the UI can pick from."""
+    if BACKEND == "soundcard":
+        return [(LOOPBACK_ID, "RUNNING")]
     rows = []
     for line in _run(["pactl", "list", "short", "sources"]).splitlines():
         parts = line.split("\t")
@@ -69,12 +91,15 @@ def _sources():
 
 
 def monitor_source():
-    """The monitor of the default sink, else any monitor that is running.
+    """The output monitor this process will record, or (None, reason).
 
     Recording the monitor is what makes system sound audible to this process
     without a loopback cable.  A sink with no monitor (some Bluetooth paths)
-    falls back to another running monitor so the page still works.
+    falls back to another running monitor so the page still works.  On Windows
+    there is one entry: WASAPI loopback of the default speaker.
     """
+    if BACKEND == "soundcard":
+        return LOOPBACK_ID, None
     rows = _sources()
     if not rows:
         return None, "no sound server (pactl found no sources)"
@@ -269,6 +294,191 @@ def render(mode, palette, bands, level, beat, rear, frame):
 
 
 # ------------------------------------------------------------------- thread --
+class Capture:
+    """A byte stream of s16le stereo frames taken from the system output."""
+
+    error = None
+
+    def read(self, n):
+        raise NotImplementedError
+
+    def alive(self):
+        return True
+
+    def close(self):
+        pass
+
+
+class ParecCapture(Capture):
+    """Linux: record a PulseAudio/PipeWire monitor with parec."""
+
+    def __init__(self, source):
+        cmd = [
+            "parec",
+            f"--device={source}",
+            f"--rate={RATE}",
+            "--channels=2",
+            "--format=s16le",
+            "--latency-msec=20",
+            "--raw",
+        ]
+        try:
+            self.proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                bufsize=BLOCK * 4, creationflags=NO_WINDOW,
+            )
+        except OSError as exc:
+            raise RuntimeError(f"could not start parec: {exc}") from exc
+
+    def read(self, n):
+        return self.proc.stdout.read(n)
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def close(self):
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=1.5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+
+
+class SoundcardCapture(Capture):
+    """Windows: WASAPI loopback of the default speaker, through SoundCard.
+
+    WASAPI can open an output device as a recorder, so no virtual cable is
+    needed.  SoundCard is imported here rather than at module level so the
+    Linux parec path does not need it installed.
+    """
+
+    def __init__(self, samplerate=RATE, blocksize=BLOCK):
+        try:
+            import soundcard as sc
+        except ImportError as exc:
+            raise RuntimeError(
+                "sound capture on this platform needs the 'soundcard' package "
+                "(pip install soundcard)") from exc
+
+        self._sc = sc
+        self._buf = bytearray()
+        self._cond = threading.Condition()
+        self._stop = threading.Event()
+        self._rec = None
+        self._thread = None
+        self.name = "loopback"
+
+        mic = None
+        try:
+            speaker = sc.default_speaker()
+        except Exception:                                        # noqa: BLE001
+            speaker = None
+        if speaker is not None:
+            try:
+                # On Windows the speaker's name doubles as the loopback id.
+                mic = sc.get_microphone(str(speaker.name), include_loopback=True)
+            except Exception:                                    # noqa: BLE001
+                mic = None
+        if mic is None:
+            try:
+                loops = list(sc.all_microphones(include_loopback=True))
+            except Exception:                                    # noqa: BLE001
+                loops = []
+            if loops:
+                mic = loops[0]
+        if mic is None and os.name != "nt":
+            # Development path: on Linux the same class is exercised through
+            # PulseAudio, where a speaker is not a recorder.
+            try:
+                mic = sc.default_microphone()
+            except Exception:                                    # noqa: BLE001
+                mic = None
+        if mic is None:
+            raise RuntimeError(
+                "no loopback device: Windows exposes one per output, so check "
+                "that a speaker or headphone is connected and selected")
+
+        self.name = str(getattr(mic, "name", "loopback"))
+        try:
+            try:
+                # SoundCard 0.5 can hand back int16 directly.
+                rec = mic.recorder(samplerate=samplerate, channels=2,
+                                   blocksize=blocksize, data_type="int16")
+            except TypeError:
+                # 0.4.x has no data_type and returns float32; _pump converts.
+                rec = mic.recorder(samplerate=samplerate, channels=2,
+                                   blocksize=blocksize)
+            rec.__enter__()
+        except Exception as exc:                                 # noqa: BLE001
+            raise RuntimeError(f"could not open {self.name}: {exc}") from exc
+        self._rec = rec
+        self._thread = threading.Thread(target=self._pump, name="capture-pump",
+                                        daemon=True)
+        self._thread.start()
+
+    def _pump(self):
+        while not self._stop.is_set():
+            try:
+                data = self._rec.record(numframes=BLOCK)
+            except Exception as exc:                             # noqa: BLE001
+                self.error = f"capture failed: {exc}"
+                break
+            if data is None:
+                continue
+            raw = np.asarray(data)
+            if raw.dtype != np.int16:
+                raw = (np.clip(raw, -1.0, 1.0) * 32767.0).astype("<i2")
+            with self._cond:
+                self._buf += raw.tobytes()
+                # A stalled consumer must not accumulate latency.
+                limit = BLOCK * 4 * 12
+                if len(self._buf) > limit:
+                    del self._buf[:len(self._buf) - limit]
+                self._cond.notify_all()
+        with self._cond:
+            self._cond.notify_all()
+
+    def read(self, n):
+        deadline = time.time() + 1.5
+        with self._cond:
+            while len(self._buf) < n:
+                if self._stop.is_set() or not self.alive():
+                    return b""
+                left = deadline - time.time()
+                if left <= 0:
+                    return b""
+                self._cond.wait(left)
+            data = bytes(self._buf[:n])
+            del self._buf[:n]
+            return data
+
+    def alive(self):
+        return (not self._stop.is_set()
+                and self._thread is not None and self._thread.is_alive())
+
+    def close(self):
+        self._stop.set()
+        with self._cond:
+            self._cond.notify_all()
+        # The pump may be inside record(); free the stream only after it has
+        # returned, otherwise libpulse is left with a freed stream object.
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        rec, self._rec = self._rec, None
+        if rec is not None:
+            try:
+                rec.__exit__(None, None, None)
+            except Exception:                                    # noqa: BLE001
+                pass
+
+
+def open_capture(source):
+    if BACKEND == "soundcard":
+        return SoundcardCapture()
+    return ParecCapture(source)
+
+
 class Engine:
     def __init__(self, send_frame, snapshot, rear):
         self.send_frame = send_frame
@@ -277,7 +487,7 @@ class Engine:
         self.stop = threading.Event()
         self.lock = threading.Lock()
         self.thread = None
-        self.proc = None
+        self.capture = None
 
         self.source, self.source_error = monitor_source()
         self.running = False
@@ -299,22 +509,10 @@ class Engine:
         if not self.source:
             self.error = self.source_error or "no monitor source"
             return False
-        cmd = [
-            "parec",
-            f"--device={self.source}",
-            f"--rate={RATE}",
-            "--channels=2",
-            "--format=s16le",
-            "--latency-msec=20",
-            "--raw",
-        ]
         try:
-            self.proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                bufsize=BLOCK * 4,
-            )
-        except OSError as exc:
-            self.error = f"could not start parec: {exc}"
+            self.capture = open_capture(self.source)
+        except Exception as exc:                                  # noqa: BLE001
+            self.error = str(exc)
             return False
         self.stop.clear()
         self.running = True
@@ -326,31 +524,30 @@ class Engine:
 
     def stop_engine(self):
         self.stop.set()
-        proc = self.proc
-        self.proc = None
-        if proc and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=1.5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+        capture = self.capture
+        self.capture = None
+        if capture:
+            capture.close()
         self.running = False
 
     def _loop(self):
         chunk = BLOCK * 4          # frames * 2 channels * 2 bytes
         analyser = Analyzer()
+        capture = self.capture
         buf = b""
         frame_no = 0
         last = time.time()
 
         while not self.stop.is_set():
             loop_start = time.time()
-            if not self.proc or self.proc.poll() is not None:
-                self.error = "the audio capture stopped"
+            if not capture or not capture.alive():
+                self.error = capture.error if capture and capture.error \
+                    else "the audio capture stopped"
                 break
-            data = self.proc.stdout.read(chunk)
+            data = capture.read(chunk)
             if not data:
-                self.error = "the audio capture returned no data"
+                self.error = capture.error if capture.error \
+                    else "the audio capture returned no data"
                 break
             buf += data
             # Keep the newest window; a slow frame must not build latency.
@@ -386,9 +583,9 @@ class Engine:
                 self.stop.wait(wait)
 
         self.running = False
-        if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
-        self.proc = None
+        if capture:
+            capture.close()
+        self.capture = None
 
     def state(self):
         with self.lock:
@@ -398,6 +595,7 @@ class Engine:
                 "palette": self.palette,
                 "gain": int(self.gain),
                 "source": self.source,
+                "backend": BACKEND,
                 "error": self.error,
                 "level": self.level,
                 "bands": list(self.bands),
