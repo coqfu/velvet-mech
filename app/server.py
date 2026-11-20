@@ -1100,6 +1100,8 @@ def _wchisp_path():
     exe = "wchisp.exe" if os.name == "nt" else "wchisp"
     root = os.path.dirname(ROOT)
     candidates = [
+        # Inside a frozen build this is the copy the bundle carries.
+        os.path.join(BUNDLE, exe) if BUNDLE else None,
         shutil.which("wchisp"),
         os.path.join(os.path.expanduser("~"), ".cargo", "bin", exe),
         os.path.join(os.path.dirname(os.path.abspath(sys.executable)), exe),

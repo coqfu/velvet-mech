@@ -578,14 +578,22 @@ unchanged (same `build/keyboard.hex`).
   `app/requirements.txt` + PyInstaller, fetches `hidapi-0.16.0` and
   `wchisp-0.3.0-win-x64`, then produces three things in `dist/windows/`:
   `KeyForge.exe`, `KeyForge-Setup-<v>.exe` (Inno Setup, per-user, no admin) and
-  `KeyForge-<v>-portable.zip`. The installer ships `wchisp.exe` next to the app,
-  so flashing on a clean machine needs no Rust; only the WinUSB driver is left.
+  `KeyForge-<v>-portable.zip`. `wchisp.exe` is both inside `KeyForge.exe` and
+  next to it in the install directory (`_wchisp_path` looks in `sys._MEIPASS`
+  first), so flashing on a clean machine needs no Rust; only the WinUSB driver
+  is left.
   `.github/workflows/windows-exe.yml` builds on `windows-latest`, uploads the
   artifact, then verifies the bundle: `--selftest` on the bare exe, a silent
   install, `--selftest` again from the installed copy, the UI fetched over HTTP,
   and a silent uninstall that must leave no exe behind. Tags attach all three
   files to the release. PyInstaller cannot cross-compile, so the binaries must
   come from a Windows runner.
+* **Frozen entry point** is `packaging/windows/launcher.py`, not `server.py`: it
+  writes `boot.log` before importing `server` and `crash.log` (traceback) if the
+  import or `main()` raises. That exists because a windowed PyInstaller build
+  turns an unhandled exception into a modal dialog, which on a headless runner
+  looks like a hang. `audio.py`'s `_root()` resolves the bundle via
+  `sys._MEIPASS` and reads `host/map.json` lazily for the same family of reason.
 * **`--selftest`** (`server.py`) checks hidapi, the bundled UI, `host/map.json`,
   `build/keyboard.hex`, the writable data dir, `wchisp` and whether the board is
   present; hidapi/UI/map/data-dir are fatal, the rest are informational. In a

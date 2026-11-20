@@ -26,8 +26,8 @@ look: `%LOCALAPPDATA%\KeyForge\keyforge.log`.
 
 ## Install it
 
-Download **`KeyForge-Setup-1.0.0.exe`** from
-<https://github.com/coqfu/velvet-mech/releases> and run it.
+Download **`KeyForge-Setup-<version>.exe`** from the latest release,
+<https://github.com/coqfu/velvet-mech/releases/latest>, and run it.
 
 It is a per-user install: no admin prompt, no Program Files, no system-wide
 registry entries. It goes to `%LOCALAPPDATA%\Programs\KeyForge`, adds a Start
@@ -43,7 +43,7 @@ for the bootloader, because that is a signed kernel driver installed per machine
 Silent install, if you script it:
 
 ```powershell
-.\KeyForge-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+.\KeyForge-Setup-<version>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 The build is unsigned, so SmartScreen shows "Windows protected your PC" the
@@ -53,8 +53,9 @@ saying otherwise would be misleading.
 
 ### Portable instead
 
-`KeyForge-1.0.0-portable.zip` holds the same files unpacked:
+`KeyForge-<version>-portable.zip` holds the same files unpacked:
 `KeyForge.exe`, `wchisp.exe`, `README.md`, `LICENSE` and `docs/WINDOWS.md`.
+`wchisp.exe` is redundant there (the exe carries its own copy) but harmless.
 Unzip anywhere - including a USB stick - and run `KeyForge.exe`. State still
 goes to `%LOCALAPPDATA%\KeyForge`, not next to the exe.
 
@@ -74,9 +75,9 @@ That produces three files in `dist\windows\`:
 
 | file | what |
 |---|---|
-| `KeyForge.exe` | single-file app, ~22 MB |
-| `KeyForge-Setup-1.0.0.exe` | the installer above (needs Inno Setup; the script installs it via Chocolatey if missing) |
-| `KeyForge-1.0.0-portable.zip` | exe + `wchisp.exe` + docs |
+| `KeyForge.exe` | single-file app, ~24 MB, carries `wchisp.exe` |
+| `KeyForge-Setup-<v>.exe` | the installer above (needs Inno Setup; the script installs it via Chocolatey if missing) |
+| `KeyForge-<v>-portable.zip` | exe + `wchisp.exe` + docs |
 
 `-NoClean` skips the PyInstaller cache reset; `-SkipInstaller` stops after the
 bare exe; `-Version 1.0.1` changes the names.
@@ -132,10 +133,12 @@ Use [Zadig](https://zadig.akeo.ie/): with the board in bootloader mode
 per machine, and it does not affect the keyboard mode (`1209:c555`), which uses
 the normal Windows HID driver.
 
-`wchisp.exe` itself ships with the app (it is in the install directory, next to
-`KeyForge.exe`), so there is nothing to install for flashing - the app looks
-beside itself first, then on `PATH`, then in `%USERPROFILE%\.cargo\bin`. If you
-prefer your own build, `cargo install wchisp` works and is found on `PATH`.
+`wchisp.exe` ships with the app - it is inside `KeyForge.exe` itself and also
+sits next to it in the install directory, so even the single portable file can
+flash from any folder with nothing installed. The app looks in its own bundle
+first, then beside the exe, then on `PATH`, then in `%USERPROFILE%\.cargo\bin`.
+If you prefer your own build, `cargo install wchisp` works and is found on
+`PATH`.
 
 Then the guided flash in **Advanced** works as described in
 `docs/INSTALL.md`: press Flash, fit the jumper, unplug and replug. The job waits

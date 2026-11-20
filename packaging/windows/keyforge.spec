@@ -32,6 +32,12 @@ def need(path):
 # HID API (no WinUSB driver needed for the keyboard itself).
 hidapi = need(os.path.join(SPECPATH, "hidapi.dll"))
 
+# wchisp ships inside the bundle as well as beside the installer copy, so the
+# bare exe can flash from any folder on a machine with nothing installed.  It is
+# a separate GPL-2.0 program, aggregated not linked; its licence text comes too.
+wchisp = need(os.path.join(SPECPATH, "wchisp.exe"))
+wchisp_licence = need(os.path.join(SPECPATH, "wchisp-LICENSE.txt"))
+
 # Only the markdown docs: docs/ also holds the WCH datasheet when the
 # developer has downloaded it, and that must not be redistributed.
 docs_dir = os.path.join(ROOT, "docs")
@@ -44,6 +50,8 @@ datas = [
     (need(os.path.join(ROOT, "host", "map.json")), "host"),
     (need(os.path.join(ROOT, "README.md")), "."),
     (need(os.path.join(ROOT, "LICENSE")), "."),
+    (wchisp, "."),
+    (wchisp_licence, "."),
 ] + doc_files
 
 a = Analysis(

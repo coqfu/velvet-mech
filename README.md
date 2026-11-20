@@ -16,10 +16,10 @@ The control app is KeyForge (`app/`), a local web UI plus a Python service.
 **Windows:** KeyForge ships as an installer that bundles everything (Python,
 numpy, SoundCard, hidapi, `wchisp`) - the target machine needs nothing
 installed:
-[download KeyForge-Setup-1.0.0.exe](https://github.com/coqfu/velvet-mech/releases).
-There is also a portable zip and a bare `KeyForge.exe`; `packaging\windows\build.ps1`
-builds all three. See `docs/WINDOWS.md`, including what is and is not verified
-on Windows.
+[download the latest release](https://github.com/coqfu/velvet-mech/releases/latest).
+There is also a portable zip and a bare `KeyForge.exe`;
+`packaging\windows\build.ps1` builds all three. See `docs/WINDOWS.md`, including
+what is and is not verified on Windows.
 
 **Licence:** MIT for everything in this repository (`LICENSE`). The optional
 flasher, [wchisp](https://github.com/ch32-rs/wchisp), is a separate GPL-2.0
