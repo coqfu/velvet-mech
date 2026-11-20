@@ -574,13 +574,23 @@ unchanged (same `build/keyboard.hex`).
   the recorder before joining the pump thread aborted libpulse
   (`pa_stream_get_state` assertion), so `close()` now joins first.
 * **Packaging**: `packaging/windows/keyforge.spec` (one file, windowed,
-  `hidapi.dll` from `binaries`), `packaging/windows/build.ps1` (installs
-  `app/requirements.txt` + PyInstaller, downloads
-  `hidapi-0.16.0/hidapi-win.zip`, runs PyInstaller into `dist/windows`), and
-  `.github/workflows/windows-exe.yml` (builds on `windows-latest`, smoke-tests
-  `/api/status` and the UI, uploads the artifact, attaches it to a `v*`
-  release). PyInstaller cannot cross-compile, so the exe must come from a
-  Windows runner.
+  `hidapi.dll` from `binaries`) and `packaging/windows/build.ps1`, which installs
+  `app/requirements.txt` + PyInstaller, fetches `hidapi-0.16.0` and
+  `wchisp-0.3.0-win-x64`, then produces three things in `dist/windows/`:
+  `KeyForge.exe`, `KeyForge-Setup-<v>.exe` (Inno Setup, per-user, no admin) and
+  `KeyForge-<v>-portable.zip`. The installer ships `wchisp.exe` next to the app,
+  so flashing on a clean machine needs no Rust; only the WinUSB driver is left.
+  `.github/workflows/windows-exe.yml` builds on `windows-latest`, uploads the
+  artifact, then verifies the bundle: `--selftest` on the bare exe, a silent
+  install, `--selftest` again from the installed copy, the UI fetched over HTTP,
+  and a silent uninstall that must leave no exe behind. Tags attach all three
+  files to the release. PyInstaller cannot cross-compile, so the binaries must
+  come from a Windows runner.
+* **`--selftest`** (`server.py`) checks hidapi, the bundled UI, `host/map.json`,
+  `build/keyboard.hex`, the writable data dir, `wchisp` and whether the board is
+  present; hidapi/UI/map/data-dir are fatal, the rest are informational. In a
+  windowed build the result is only visible in `keyforge.log`, which is why CI
+  reads the log as well as the exit code.
 * **Docs**: `docs/WINDOWS.md` states what is verified (the exe builds, starts
   and serves the UI in CI) and what is not (USB against the board on Windows,
   flashing on Windows, audio on Windows hardware), plus Zadig, SmartScreen and

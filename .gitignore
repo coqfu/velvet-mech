@@ -33,3 +33,8 @@ tools/WCH_CH555/
 dist/windows/
 packaging/windows/hidapi.dll
 build/pyinstaller-windows/
+
+# Fetched at build time (third-party binaries, not committed)
+packaging/windows/wchisp.exe
+packaging/windows/wchisp-LICENSE.txt
+packaging/windows/hidapi.dll

@@ -1,8 +1,10 @@
 name: windows-exe
 
-# Builds KeyForge.exe on a real Windows runner: PyInstaller cannot cross-compile,
-# so this is the only way to produce a Windows binary.  Tags publish the exe as a
-# release asset; manual runs keep it as a workflow artifact.
+# Builds the Windows release on a real Windows runner: a single-file
+# KeyForge.exe, an Inno Setup installer with every dependency inside, and a
+# portable zip.  PyInstaller cannot cross-compile, so this is the only place a
+# Windows binary can come from.  Tags publish all three as release assets;
+# manual runs keep them as a workflow artifact.
 on:
   workflow_dispatch:
   push:
@@ -25,69 +27,103 @@ jobs:
             app/requirements.txt
             packaging/windows/requirements-build.txt
 
-      - name: Build KeyForge.exe
+      - name: Work out the version
+        id: ver
         shell: pwsh
-        run: ./packaging/windows/build.ps1
+        run: |
+          $v = "${{ github.ref_name }}"
+          if ($v -notmatch '^v?\d+\.\d+') { $v = "1.0.0" }
+          "value=$($v -replace '^v','')" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+
+      - name: Build exe, installer and portable zip
+        shell: pwsh
+        run: ./packaging/windows/build.ps1 -Version "${{ steps.ver.outputs.value }}"
 
       # Upload before the checks: a build that starts but fails a check is still
-      # worth keeping, and the next step needs the log it produces.
+      # worth keeping, and the check step needs the log it produces.
       - uses: actions/upload-artifact@v4
         with:
           name: KeyForge-windows-x64
-          path: dist/windows/KeyForge.exe
+          path: |
+            dist/windows/KeyForge.exe
+            dist/windows/KeyForge-Setup-*.exe
+            dist/windows/KeyForge-*-portable.zip
           if-no-files-found: error
 
-      - name: Selftest inside the exe
+      - name: Verify the bundle and the installer
         shell: pwsh
         run: |
           $log = Join-Path $env:LOCALAPPDATA "KeyForge\keyforge.log"
-          Remove-Item $log -ErrorAction SilentlyContinue
-          $p = Start-Process -FilePath "dist/windows/KeyForge.exe" -ArgumentList "--selftest" -Wait -PassThru
-          if (Test-Path $log) { Write-Host "--- keyforge.log"; Get-Content $log }
-          if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
+          function Run-Selftest([string]$exe) {
+            Remove-Item $log -ErrorAction SilentlyContinue
+            $p = Start-Process -FilePath $exe -ArgumentList "--selftest" -PassThru
+            $done = $p.WaitForExit(90000)
+            Write-Host "--- keyforge.log ($exe)"
+            if (Test-Path $log) { Get-Content $log }
+            if (-not $done) { Stop-Process -Id $p.Id -Force; throw "selftest hung: $exe" }
+            if ($p.ExitCode -ne 0) { throw "selftest failed ($($p.ExitCode)): $exe" }
+          }
 
-      - name: Serve the UI from the exe
-        shell: pwsh
-        run: |
-          $log = Join-Path $env:LOCALAPPDATA "KeyForge\keyforge.log"
-          $p = Start-Process -FilePath "dist/windows/KeyForge.exe" -ArgumentList "--no-browser", "--port", "8901" -PassThru
+          Write-Host "=== bare exe"
+          Run-Selftest (Resolve-Path "dist/windows/KeyForge.exe")
+
+          Write-Host "=== installer"
+          $setup = Get-ChildItem "dist/windows/KeyForge-Setup-*.exe" | Select-Object -First 1
+          $dir = Join-Path $env:TEMP "KeyForgeInstalled"
+          if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          $p = Start-Process -FilePath $setup.FullName -PassThru -Wait `
+               -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$dir"
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          Get-ChildItem $dir | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
+
+          Write-Host "=== installed app"
+          Run-Selftest (Join-Path $dir "KeyForge.exe")
+
+          Write-Host "=== installed app serves the UI"
+          $srv = Start-Process -FilePath (Join-Path $dir "KeyForge.exe") `
+                 -ArgumentList "--no-browser", "--port", "8901" -PassThru
           $ok = $false
           try {
             for ($i = 0; $i -lt 40; $i++) {
               Start-Sleep -Milliseconds 700
               $code = curl.exe -s -o page.html -w "%{http_code}" --max-time 3 http://127.0.0.1:8901/
               if ($code -eq "200" -and (Select-String -Path page.html -Pattern "index-" -Quiet)) {
-                Write-Host "ui: served (index.html references a bundle)"
-                $api = curl.exe -s --max-time 3 http://127.0.0.1:8901/api/status
-                Write-Host "status:" $api
+                Write-Host "ui: served"
+                Write-Host "status:" (curl.exe -s --max-time 3 http://127.0.0.1:8901/api/status)
                 $ok = $true
                 break
               }
             }
           } finally {
-            if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+            if ($srv -and -not $srv.HasExited) { Stop-Process -Id $srv.Id -Force }
           }
           if (-not $ok) {
-            Write-Host "--- process"
-            if ($p.HasExited) { Write-Host "exited with code $($p.ExitCode)" }
-            else { Write-Host "still running, pid $($p.Id)" }
-            Write-Host "--- listeners"
+            if (Test-Path $log) { Write-Host "--- keyforge.log"; Get-Content $log }
             Get-NetTCPConnection -LocalPort 8901 -ErrorAction SilentlyContinue |
               Format-Table -AutoSize | Out-String | Write-Host
-            if (Test-Path $log) { Write-Host "--- keyforge.log"; Get-Content $log }
-            throw "the exe never served the UI on port 8901"
+            throw "the installed app never served the UI on port 8901"
           }
 
-      - name: Attach the exe to the release
+          Write-Host "=== uninstall"
+          Start-Process -FilePath (Join-Path $dir "unins000.exe") -PassThru -Wait `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" | Out-Null
+          if (Test-Path (Join-Path $dir "KeyForge.exe")) { throw "uninstall left KeyForge.exe behind" }
+          Write-Host "uninstalled cleanly"
+
+      - name: Attach the release assets
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $notes = "KeyForge for Windows x64 (single file). Run it and the UI opens at http://127.0.0.1:8765/. Hardware is the iGear Raptor only; flashing also needs wchisp and the WinUSB driver - see docs/WINDOWS.md."
+          $notes = "KeyForge for Windows x64: a single-file KeyForge.exe, a per-user installer, and a portable zip. Everything is bundled - Python, numpy, SoundCard, hidapi.dll and wchisp.exe - so the target machine needs nothing installed. Hardware is the iGear Raptor only; flashing still needs the WinUSB driver (Zadig) - see docs/WINDOWS.md."
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "KeyForge $tag" --notes $notes
           }
-          gh release upload $tag dist/windows/KeyForge.exe --clobber
+          gh release upload $tag `
+            dist/windows/KeyForge.exe `
+            dist/windows/KeyForge-Setup-*.exe `
+            dist/windows/KeyForge-*-portable.zip `
+            --clobber
