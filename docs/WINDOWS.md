@@ -29,8 +29,10 @@ Either take it from the repository's **Releases** page, or build it yourself.
 
 ### From a release
 
-Download `KeyForge.exe` from
-<https://github.com/coqfu/velvet-mech/releases>, put it anywhere and run it.
+Download
+[KeyForge.exe](https://github.com/coqfu/velvet-mech/releases/download/v1.0.0/KeyForge.exe)
+(or pick a newer release from <https://github.com/coqfu/velvet-mech/releases>),
+put it anywhere and run it.
 
 The build is unsigned, so Windows SmartScreen shows "Windows protected your PC"
 the first time. Choose **More info → Run anyway**. There is no certificate
