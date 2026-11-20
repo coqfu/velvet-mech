@@ -72,8 +72,9 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    # No modal traceback: exit with the exception in crash.log instead.
-    disable_windowed_traceback=True,
+    # A crash shows its traceback in a modal box: that is what a desktop user
+    # needs, and launcher.py also writes it to crash.log for headless runs.
+    disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,

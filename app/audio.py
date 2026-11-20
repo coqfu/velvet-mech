@@ -24,7 +24,19 @@ import time
 
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def _root():
+    """Directory holding host/map.json.
+
+    In a frozen build __file__ points inside the PYZ, so the two-level walk
+    would land in %TEMP%; the bundle root (sys._MEIPASS) is the right answer
+    there.  server.py puts the map at <bundle>/host/map.json for both.
+    """
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+ROOT = _root()
 
 BANDS = 14                 # one per matrix column
 RATE = 48000
@@ -129,7 +141,22 @@ def key_grid():
     return [(i, k["col"], k["row"]) for i, k in enumerate(data["keys"])]
 
 
-GRID = key_grid()
+_GRID = None
+
+
+def grid():
+    """key_grid(), read once on first use.
+
+    Deliberately lazy: an incomplete bundle must not kill the whole service at
+    import time (in a windowed build that is a modal dialog and looks like a
+    hang).  server.py's --selftest checks host/map.json up front instead, so a
+    missing map is reported as a broken bundle rather than as the app silently
+    doing nothing.
+    """
+    global _GRID
+    if _GRID is None:
+        _GRID = key_grid()
+    return _GRID
 
 
 # --------------------------------------------------------------- analysis --
@@ -233,7 +260,7 @@ def render(mode, palette, bands, level, beat, rear, frame):
     """One 69-LED frame: 63 keys in matrix order, then 6 rear LEDs."""
     ceiling = rear["ceiling"] / 255.0
     colours = []
-    for led, col, row in GRID:
+    for led, col, row in grid():
         if mode == "spectrum":
             t = col / BANDS
             v = float(bands[col % BANDS])
